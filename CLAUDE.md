@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+ExtendedMemory's current architecture and development rules are in [AGENTS.md](AGENTS.md) and [README.md](README.md). The notes below are retained from upstream and describe `registerLegacyMemory`, not the installed default entry point. The default uses a fixed foreground snapshot and a private background Agent with scoped file tools.
+
 ## What This Is
 
 A memory extension for the [pi coding agent](https://github.com/earendil-works/pi). It provides persistent memory across coding sessions via plain markdown files, with optional semantic search powered by [qmd](https://github.com/tobi/qmd). Single-file extension (`index.ts`) — no build step, pi loads TypeScript directly.

@@ -1,274 +1,103 @@
-# pi-memory
+# ExtendedMemory
 
-[![npm version](https://img.shields.io/npm/v/pi-memory?color=cb3837&logo=npm)](https://www.npmjs.com/package/pi-memory)
-[![npm downloads](https://img.shields.io/npm/dm/pi-memory?color=cb3837&logo=npm)](https://www.npmjs.com/package/pi-memory)
-[![license](https://img.shields.io/npm/l/pi-memory)](LICENSE)
+[![CI](https://github.com/LeeWikie/ExtendedMemory/actions/workflows/ci.yml/badge.svg)](https://github.com/LeeWikie/ExtendedMemory/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**The most popular memory extension for [pi](https://github.com/earendil-works/pi/)** — listed in the [official pi package directory](https://pi.dev/packages?name=pi-memory), with semantic search powered by [qmd](https://github.com/tobi/qmd).
+为 [pi](https://github.com/earendil-works/pi) 提供约 **50k tokens 常驻记忆**。在会话开始时全量注入 `MEMORY/`，由后台微型 Agent 持续整理文件。
 
-Thanks to https://github.com/skyfallsin/pi-mem for inspiration.
-
-Your coding agent forgets everything between sessions. pi-memory gives it a memory: durable facts and decisions, a running daily log, and a scratchpad of things to come back to — all as plain markdown files you can read, edit, and commit. With optional [qmd](https://github.com/tobi/qmd) it also gets keyword, semantic, and hybrid **search** across everything it has ever remembered.
-
-## What it feels like
+记忆从少量泛概念生长为多个维度的文件和目录。后台根据内容的重要性、增长、关联和维护需要决定怎样分类、拆分、合并，并重新归纳父级摘要。
 
 ```text
-# Session 1
-you ▸ I always use pnpm in this repo, never npm. Remember that.
-pi  ▸ Got it — saved to long-term memory.   (writes MEMORY.md)
-
-# …days later, brand new session…
-you ▸ add prettier as a dev dependency
-pi  ▸ pnpm add -D prettier
-      (recalled your package-manager preference from memory — no reminder needed)
+MEMORY/
+├── IDENTITY.md
+├── MEMORY.md
+├── USER.md
+└── Recent.md
 ```
 
-Everything lives in `~/.pi/agent/memory/` as markdown, so you can also just `cat` it:
+这是 [Basic 初始集合](templates/basic/README.md)，不是固定分类表。例如 `USER.md` 可以发展为 `USER/USER.md` 和下级文件；升级后的同名文件保留综合理解，整个目录的正文仍全量注入。
 
-```bash
-$ cat ~/.pi/agent/memory/MEMORY.md
-<!-- 2026-06-07 10:12:03 [a1b2c3d4] -->
-#preference [[package-manager]] Always use pnpm in this repo, never npm.
+## 安装
+
+要求 pi **0.87.1 或更新版本**，Node.js **22.19 或更新版本**。
+
+```sh
+git clone https://github.com/LeeWikie/ExtendedMemory.git
+cd ExtendedMemory
+npm install
+pi install .
 ```
 
-## Installation
+重启 pi 后生效。默认正文位于 `~/.extended-memory/MEMORY/`；可用 `EXTENDED_MEMORY_DIR` 指定其他目录。空白初始文件见 [templates/basic/MEMORY](templates/basic/MEMORY)。此项目没有向 npm 发布安装包，`npm:pi-memory` 指向上游项目。
 
-```bash
-# Install from npm (recommended)
-pi install npm:pi-memory
+## 工作方式
 
-# …or from a local checkout
-pi install ./pi-memory
+- **主会话**：开始时递归加载全部 Markdown，保留固定快照。后续轮次、压缩和恢复沿用原快照，新会话读取最新正文。主 Agent 没有记忆工具，也不会加载后台整理 Skill。
+- **后台整理**：复用 pi 原生 `Agent` 运行时，独立加载 [Paperclip 整理 Skill](background/skills/para-memory-files/SKILL.md)。仅获得限定在 `MEMORY/` 内的读、搜索、写、局部编辑、建目录、移动、删除和 token 计量工具。
+- **直接修改**：文件操作即时生效，没有整目录候选输出、宿主内容校验、审批或发布流程。中断保留已完成的修改，重试先读取实际文件。多文件整理期间开始的新会话可能看到整理过程中的状态。
+- **独立上下文**：每个前台会话对应一个私有后台上下文，后续追加新证据和工具结果，重启后恢复。不创建 pi 的常规历史会话。模型或 Skill 配置变化时归档原记录并重新建立上下文。
+- **缓存与预算**：请求使用稳定的后台 session ID 和长缓存保留选项；供应商决定实际缓存命中。Agent 用 `memory_tokens` 管理全部正文和注入包装共享的 50k 预算。加载不会静默截断，宿主也不会按预算拒绝文件修改。
+
+后台在每轮结束、压缩前收集新增用户和助手文本；启动时恢复队列并补收当前分支。默认延迟 1.5 秒处理，主对话不等待。退出时取消未完成请求，待下次启动重试；没有退出后常驻的独立进程。失败默认 60 秒后重试。
+
+## Recent 与事实来源
+
+`Recent` 保存近期 session 中用户直接陈述的近况、位置变化、在办事项和短期计划，区分当前、此前、计划及待确认状态。消息原始时间与收集时间分别保留；历史导入时间不能充当事实发生时间。短暂状态标明最后确认时间，晚到的旧消息不覆盖更新的状态，示例或助手猜测不成为用户事实。
+
+整理时按来源会话区分说话者，消解“我”“本机”“此电脑”等指代。采集主机、工作目录和平台只描述采集环境，不能证明历史消息中的设备。依据不足时保留不确定性。
+
+## 配置
+
+默认读取 `~/.extended-memory/config.json`。自定义正文目录时读取其父目录的 `config.json`，也可用 `EXTENDED_MEMORY_CONFIG` 显式指定。
+
+```json
+{
+  "background": {
+    "enabled": true,
+    "model": "openai-codex/gpt-6-astra",
+    "tokenBudget": 50000,
+    "debounceMs": 1500,
+    "timeoutMs": 120000
+  }
+}
 ```
 
-That's it — the six core tools (`memory_write`, `memory_forget`, `memory_restore`,
-`memory_read`, `scratchpad`, `memory_status`) work immediately with no other setup.
-Search is opt-in below.
+省略 `model` 时使用启动时的会话模型；指定模型时使用 `provider/model-id`，模型须在 pi 中可用。认证、自定义 provider 和网络路由复用宿主配置。指定模型不可用时记录错误并保留任务，不自动切换。
 
-### Optional: enable search with qmd
+每次模型调用最多输出 8,192 tokens，同时受模型上限约束；通过多次工具调用处理局部变化，不重新输出整个记忆集合。接近上下文容量时，请求移除完整的早期整理轮次，私有历史记录仍保留。
 
-`memory_search` (and selective injection) need [qmd](https://github.com/tobi/qmd). Either install method works:
+## 存储与 Git
 
-```bash
-npm install -g @tobilu/qmd                      # no Bun required
-bun install -g https://github.com/tobi/qmd      # ensure ~/.bun/bin is on PATH
+```text
+~/.extended-memory/
+├── MEMORY/                    # 会话全量注入的 Markdown 正文
+├── MEMORY.state/
+│   ├── pending/               # 待处理来源
+│   ├── completed/             # 来源、整理结论与实际用量
+│   ├── agent-sessions/        # 私有后台上下文
+│   └── last-error.json        # 最近一次错误
+└── config.json
 ```
 
-When qmd is present, the extension **automatically creates** the `pi-memory`
-collection and path contexts on the next session start — no manual step. Run
-`memory_status` any time to confirm qmd, the collection, and embeddings are ready.
+多个进程通过锁串行整理。来源、状态、历史记录和配置不注入主会话。旧版产生的目录版本保留用于升级恢复；新整理不再产生发布记录。历史记录目前不会自动清理。
 
-Semantic/deep modes need vector embeddings; the extension keeps them current
-automatically (`qmd embed` runs in the background at session start and after
-writes). The very first embed downloads the embedding model, so semantic search
-may take a minute to come online on a fresh install. To set the collection up
-by hand:
+本仓库用于公开维护插件代码、Skill、模板和测试。个人记忆可由用户放在单独的 **GitHub 私有仓库**：以正文目录的父目录为 Git 根目录，仅跟踪 `MEMORY/`，让 `.git/` 保持在后台 Agent 的文件权限之外。原始聊天导入、凭据、配置和 `MEMORY.state/` 应排除。插件本身不执行 Git 提交或联网同步，后续推送由仓库维护流程负责。
 
-```bash
-qmd collection add ~/.pi/agent/memory --name pi-memory
-qmd context add /daily "Daily append-only work logs organized by date" -c pi-memory
-qmd context add / "Curated long-term memory: decisions, preferences, facts, lessons" -c pi-memory
-qmd embed
-```
+## 开发与验证
 
-Without qmd, the core tools still work fully — only `memory_search` and selective injection require it.
-
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| `memory_write` | Write to MEMORY.md (long-term) or daily log |
-| `memory_forget` | Delete matching entries and create a durable recovery record |
-| `memory_restore` | Restore a deletion using the recovery ID returned by `memory_forget` |
-| `memory_read` | Read any memory file or list daily logs |
-| `scratchpad` | Add/done/undo/clear/list checklist items |
-| `memory_search` | Search across all memory files (requires qmd) |
-| `memory_status` | Health check: where files live, qmd/collection/embeddings state, active config |
-
-### memory_search modes
-
-| Mode | Speed | Method | Best for |
-|------|-------|--------|----------|
-| `keyword` | ~30ms | BM25 | Specific terms, dates, names, #tags, [[links]] |
-| `semantic` | ~2s | Vector search | Related concepts, different wording |
-| `deep` | ~10s | Hybrid + reranking | When other modes miss |
-
-If the first search doesn't find what you need, try rephrasing or switching modes.
-
-## File layout
-
-```
-~/.pi/agent/memory/
-  MEMORY.md              # Curated long-term memory
-  SCRATCHPAD.md           # Checklist of things to fix/remember
-  daily/
-    2026-02-15.md         # Daily append-only log
-    2026-02-14.md
-    ...
-  recovery/
-    <recovery-id>.json    # Complete payload and restore state for a memory_forget deletion
-```
-
-## How it works
-
-### Context injection
-
-Before every agent turn, the following are injected into the system prompt (in priority order):
-
-1. **Open scratchpad items** (up to 2K chars)
-2. **Today's daily log** (up to 3K chars, tail)
-3. **MEMORY.md** (up to 4K chars, middle-truncated)
-4. **Yesterday's daily log** (up to 3K chars, tail — lowest priority, trimmed first)
-
-Total injection is capped at 16K chars.
-
-### KV cache-stable snapshot (default)
-
-Local prefix-caching runtimes (llama.cpp, vLLM, MLX) invalidate from the first divergent token onward. If the injected memory block changes turn-to-turn, every subsequent user / assistant / tool token gets reprocessed — effectively the entire conversation history each turn.
-
-To keep the prefix byte-stable, the extension snapshots the memory context at deliberate checkpoints and emits the same bytes for every turn in between. Snapshots refresh on:
-
-- **`session_start`** — fresh snapshot per session
-- **`session_before_compact`** — handoff is written then snapshot refreshes (one intentional cache boundary at compaction)
-- **`session_start`** is the only checkpoint in `stable` mode. Long-term writes and day rollovers do **not** re-render the block: a refresh rewrites the tail of the system prompt and voids the prefix cache for the whole conversation, which is the cost the snapshot exists to avoid, paid on the most common in-session event. The written fact is already in tool-call history, and `memory_read` / `memory_search` reach the files directly.
-- **Deletions and restores** intentionally refresh the snapshot. These are rare, authority-changing operations: forgotten content must disappear from the prompt immediately, and pi does not copy deleted content into a persisted correction message merely to preserve the cache.
-- Set `PI_MEMORY_SNAPSHOT=refresh` for the old behaviour (refresh on long-term write and day rollover, with a `Snapshot <reason> at <hh:mm:ss>` caveat line).
-
-`memory_write` with `target: daily` and `scratchpad` writes do **not** mark dirty — they're high-frequency and the write content is already echoed via tool-call args. The model can always call `memory_read` / `memory_search` for the authoritative latest state.
-
-Set `PI_MEMORY_SNAPSHOT=per-turn` to opt out and restore the old per-turn rebuild behavior, including automatic per-prompt qmd search injection.
-
-### Selective injection (opt-in via `per-turn` mode)
-
-When `PI_MEMORY_SNAPSHOT=per-turn` is set and qmd is available, the extension automatically searches memory using the user's prompt before each turn. The top 3 keyword results are injected alongside the standard context. This surfaces relevant past decisions without an explicit `memory_search` call, at the cost of busting the KV cache every turn (the search is prompt-dependent and cannot be cached).
-
-The search has a 3-second timeout and fails silently. In the default `stable` mode, the model gets the same capability by calling `memory_search` on demand.
-
-### Tags and links
-
-Use `#tags` and `[[wiki-links]]` in memory content to improve searchability:
-
-```markdown
-#decision [[database-choice]] Chose PostgreSQL for all backend services.
-#preference [[editor]] User prefers Neovim with LazyVim config.
-#lesson [[api-versioning]] URL prefix versioning (/v1/) avoids CDN cache issues.
-```
-
-These are content conventions, not enforced metadata. qmd's full-text indexing makes them searchable for free.
-
-### Session handoff
-
-When the context window compacts, the extension automatically captures a handoff entry in today's daily log:
-
-```markdown
-<!-- HANDOFF 2026-02-15 14:30:00 [a1b2c3d4] -->
-## Session Handoff
-**Open scratchpad items:**
-- [ ] Fix auth bug
-- [ ] Review PR #42
-**Recent daily log context:**
-...last 15 lines of today's log...
-```
-
-This ensures in-progress context survives compaction and is visible in the next turn (via today's daily log injection).
-
-### Other behavior
-
-- **Persistence**: Memory files are plain markdown on disk — readable, editable, and git-friendly.
-- **Recoverable deletion**: `memory_forget` stores complete deleted entries under `recovery/` before changing memory and returns a recovery ID that `memory_restore` can use. Recovery JSON is outside qmd's `**/*.md` index.
-- **Tool response previews**: Write/scratchpad tools return size-capped previews instead of full file contents.
-- **qmd auto-setup**: On first session start with qmd available, the extension creates the collection and path contexts automatically.
-- **qmd re-indexing**: After every write, a debounced `qmd update` runs in the background (fire-and-forget, non-blocking) unless disabled via `PI_MEMORY_QMD_UPDATE`.
-- **qmd embeddings**: Vector embeddings for semantic/deep search are kept current automatically — `qmd embed` (incremental) runs in the background after each re-index and as a catch-up at session start. Disabled along with re-indexing via `PI_MEMORY_QMD_UPDATE`.
-- **Graceful degradation**: If qmd is not installed, core tools work fine. `memory_search` returns install instructions.
-
-### Configuration
-
-| Variable | Values | Default | Description |
-|----------|--------|---------|-------------|
-| `PI_MEMORY_DIR` | path | `~/.pi/agent/memory` | Override the memory storage directory |
-| `PI_MEMORY_SNAPSHOT` | `stable`, `refresh`, `per-turn` | `stable` | `stable` snapshots once at session start and never re-renders it (deletions append a correction); `refresh` also re-renders on long-term writes and day rollover; `per-turn` rebuilds every turn (legacy behavior) |
-| `PI_MEMORY_QMD_UPDATE` | `background`, `manual`, `off` | `background` | Controls automatic `qmd update` + `qmd embed` after writes |
-| `PI_MEMORY_QMD_SEARCH_TIMEOUT_MS` | positive integer (milliseconds) | `60000` | Sets the timeout for explicit `memory_search` qmd queries |
-| `PI_MEMORY_EMBED_PROBE_TIMEOUT_MS` | positive integer (milliseconds) | `15000` | Sets the timeout for the `memory_status` embeddings readiness probe. Raise it on slower machines if the probe reports `unknown` |
-| `PI_MEMORY_NO_SEARCH` | `1` | unset | Disable selective injection in `per-turn` mode (no effect in `stable` mode) |
-| `PI_MEMORY_SUMMARIZE_TRANSITIONS` | `1`, `true`, `yes`, `on` | unset | Also write exit summaries during lifecycle transitions (`/reload`, `/new`, `/resume`, `/fork`). By default these transitions skip summaries for speed. |
-| `PI_MEMORY_EXIT_SUMMARY` | `0`, `off`, `false`, `no` to disable | unset (enabled) | Disable the exit summary on real quit (Ctrl+D, `/quit`, session end). Quitting then does no LLM call and no `qmd update`, so it is instant; explicit `memory_write` during sessions is unaffected. |
-| `PI_MEMORY_EXIT_SUMMARY_MODEL` | `provider/model-id` | unset (session model) | Model used to write the exit summary, e.g. a cheaper/faster one. Unresolvable specs fall back to the session model with a warning. |
-| `PI_MEMORY_EXIT_SUMMARY_REASONING_EFFORT` | `minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`none`/`off` | `low` | Reasoning effort for the exit-summary LLM call. Some providers reject certain values (e.g. Baseten GLM-5.2 only accepts `high`/`max`/`none` and returns HTTP 400 for `low`, silently breaking exit summaries). Set this to a value your `PI_MEMORY_EXIT_SUMMARY_MODEL` accepts. Use `off` to omit the parameter and let the provider apply its own default. |
-| `PI_MEMORY_EXIT_SUMMARY_TIMEOUT_MS` | positive integer (milliseconds) | `10000` | Self-imposed timeout for exit-summary generation on quit. Pi awaits shutdown handlers with no timeout, so a hanging provider would otherwise block quitting indefinitely. On expiry nothing is persisted. |
-
-## Troubleshooting
-
-Run the `memory_status` tool first — it reports most of these at a glance.
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `memory_search` says qmd is required | qmd not installed or not on `PATH` | Install qmd (`npm install -g @tobilu/qmd`); if installed via Bun, ensure `~/.bun/bin` is on `PATH` |
-| Search returns nothing for terms you know exist | Index is stale | A background `qmd update` runs after writes; if disabled (`PI_MEMORY_QMD_UPDATE=off`), run `qmd update` manually |
-| “need embeddings” on semantic/deep search | Vectors not built yet | Embedding starts automatically in the background — retry shortly. If `PI_MEMORY_QMD_UPDATE` is `manual`/`off`, run `qmd embed` yourself |
-| Collection `pi-memory` missing | Auto-setup didn't run (qmd installed mid-session) | Run any `memory_search` (auto-creates it) or `qmd collection add ~/.pi/agent/memory --name pi-memory` |
-| qmd works in the shell but not from pi on Windows | Broken `.cmd`/`.ps1` shims | The extension bypasses them by invoking qmd's JS entry with `node`; make sure the npm global `node_modules` dir is on `PATH` |
-| Memory isn't being injected after a write | The snapshot is taken once per session and deliberately not re-rendered | The write is visible in tool-call history; use `memory_read` / `memory_search` for the current state, or set `PI_MEMORY_SNAPSHOT=refresh` (costs a full prompt reprocess per write) |
-
-## Running tests
-
-```bash
-# Unit tests (no LLM, no qmd — fast, deterministic). Requires Bun.
+```sh
+npm ci
 npm test
-
-# End-to-end tests (requires pi + API key, optionally qmd)
-npm run test:e2e
-
-# Recall effectiveness eval (requires pi + API key + qmd)
-npm run test:eval
-
-# Pin provider/model for cheaper eval runs
-PI_E2E_PROVIDER=openai PI_E2E_MODEL=gpt-4o-mini npm run test:eval
-
-# Multiple runs for statistical robustness
-EVAL_RUNS=3 npm run test:eval
+npm run build
+npm run lint
 ```
 
-All tests back up and restore existing memory files.
+测试需要 Bun；未全局安装时可运行 `npm exec --yes --package=bun -- npm test`。默认测试包括上游工具回归、会话快照及后台 Agent 测试，使用隔离的临时目录，不需要模型 API key 或 qmd。
 
-### Test levels
+设置 `PI_SDK_ROOT` 为本机 `@earendil-works/pi-coding-agent` 包目录后，运行 `node test/resident-loader.mjs` 可检查真实扩展加载器。验证范围与命令见 [验证记录](docs/verification.md)。
 
-| Level | Command | Requirements | What it tests |
-|-------|---------|-------------|---------------|
-| Unit | `npm test` (`test/unit.test.ts`) | Bun | Context builder, truncation, handoff, scratchpad parsing, qmd plumbing |
-| E2E | `npm run test:e2e` (`test/e2e.ts`) | pi + API key | Tool registration, write/recall, scratchpad lifecycle, search |
-| Eval | `npm run test:eval` (`test/eval-recall.ts`) | pi + API key + qmd | Recall accuracy with vs without selective injection |
+## 来源与许可
 
-## Development
+基于 [jayzeng/pi-memory](https://github.com/jayzeng/pi-memory)，保留上游 Git 历史、MIT 许可和旧入口的回归代码。默认入口已改为目录常驻与后台整理；qmd 不是该入口的依赖。[上游历史文档](docs/upstream-pi-memory.md)、`design.md`、上游 API E2E 和 recall eval 描述的是旧设计。
 
-This is a single-file extension (`index.ts`). No build step required — pi loads TypeScript directly.
-
-```bash
-# Test with pi directly
-pi -p -e ./index.ts "remember: I prefer dark mode"
-
-# Verify memory was written
-cat ~/.pi/agent/memory/MEMORY.md
-```
-
-## Publishing (maintainers)
-
-Releases are tag-driven. Pushing a `v*` tag runs the publish workflow, which
-lints, builds, runs the unit tests, verifies the tag matches `package.json`,
-and then publishes to npm.
-
-```bash
-# Bump version + create the matching git tag (updates package.json)
-npm version patch   # or minor / major
-
-# Push the commit and tag — this triggers .github/workflows/publish-npm.yml
-git push --follow-tags
-
-# Verify the published install
-pi install npm:pi-memory
-```
-
-## Changelog
-
-See [CHANGELOG.md](./CHANGELOG.md).
+后台 Skill 基于 Paperclip 的 `para-memory-files`，来源、固定版本及适配差异见 [Paperclip 说明](background/skills/para-memory-files/references/paperclip.md)，原许可随附。项目按 [MIT](LICENSE) 开源。

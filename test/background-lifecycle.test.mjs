@@ -1,0 +1,45 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import register from "../index.ts";
+import { model, response, streamFixture, lastJob } from "./agent-fixture.mjs";
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "memory-lifecycle-"));
+const old = process.env.EXTENDED_MEMORY_DIR;
+process.env.EXTENDED_MEMORY_DIR = path.join(temp, "MEMORY");
+fs.mkdirSync(process.env.EXTENDED_MEMORY_DIR);
+fs.writeFileSync(path.join(process.env.EXTENDED_MEMORY_DIR, "USER.md"), "old snapshot");
+fs.writeFileSync(path.join(process.env.EXTENDED_MEMORY_DIR, "Recent.md"), "# Recent\nNo confirmed recent state.");
+fs.writeFileSync(path.join(temp, "config.json"), JSON.stringify({background:{debounceMs:0,model:"fixture/background"}}));
+const handlers = new Map();
+const entries = [];
+let calls = 0;
+let release;
+let promptReceived;
+register({on:(name, fn)=>handlers.set(name,fn), appendEntry:(customType,data)=>entries.push({type:"custom",customType,data})}, {streamFn:streamFixture(async (context, _options, selected) => {assert.equal(selected.id,"background"); calls++; promptReceived=lastJob(context); await new Promise(r=>release=r); return response();})});
+const ctx = {cwd:temp,model,modelRegistry:{find:(provider,id)=>provider==="fixture"&&id==="background"?{...model,id}:undefined},hasUI:false,sessionManager:{getBranch:()=>entries,getSessionId:()=>"fixture"}};
+try {
+ await handlers.get("session_start")({},ctx);
+ assert(handlers.has("agent_end"), "Automatic organization must be wired to agent_end");
+ const initial = await handlers.get("before_agent_start")({systemPrompt:"base"},ctx);
+ assert(!initial.systemPrompt.includes("Paperclip Memory Organization"), "The background Skill is never injected into the foreground prompt");
+ const timestamp = Date.parse("2026-09-27T08:15:00.000Z");
+ entries.push({type:"message",id:"u1",timestamp:"2026-09-27T08:16:00.000Z",message:{role:"user",timestamp,content:[{type:"text",text:"Remember a durable preference"}]}});
+ entries.push({type:"message",id:"u2",timestamp:"2026-09-27T08:17:00.000Z",message:{role:"user",content:"I am on the train now."}});
+ await handlers.get("agent_end")({},ctx);
+ for(let n=0;n<100&&!release;n++) await new Promise(r=>setTimeout(r,20));
+ assert.equal(calls,1);
+ assert.equal(promptReceived.source.messages[0].timestamp, "2026-09-27T08:15:00.000Z", "The user's message time must reach the organizer");
+ assert.equal(promptReceived.source.messages[1].timestamp, "2026-09-27T08:17:00.000Z", "Session-entry time is the fallback when the message has no timestamp");
+ assert(promptReceived.source.messages.every(message => !Number.isNaN(Date.parse(message.capturedAt))), "Capture time is preserved separately from evidence time");
+ assert.deepEqual(promptReceived.source.collectionContext, {hostname:os.hostname(),cwd:temp,platform:process.platform}, "The actual capture host, working directory and platform must reach the organizer");
+ assert.equal((await handlers.get("before_agent_start")({systemPrompt:"base"},ctx)).systemPrompt, initial.systemPrompt);
+ release();
+ await new Promise(r=>setTimeout(r,100));
+ await handlers.get("session_shutdown")({},ctx);
+ console.log("PASS: lifecycle automatically queues Skill work without blocking; snapshot remains fixed");
+} finally {
+ if(handlers.has("session_shutdown")) await handlers.get("session_shutdown")({},ctx);
+ if(old===undefined) delete process.env.EXTENDED_MEMORY_DIR; else process.env.EXTENDED_MEMORY_DIR=old;
+ fs.rmSync(temp,{recursive:true,force:true});
+}

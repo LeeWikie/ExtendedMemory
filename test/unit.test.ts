@@ -138,10 +138,10 @@ describe("runtime package scope", () => {
 		expect(source).not.toContain("@mariozechner/pi-ai");
 		expect(source).not.toContain("@mariozechner/pi-coding-agent");
 
-		expect(packageJson.devDependencies["@earendil-works/pi-ai"]).toBe("0.84.1");
-		expect(packageJson.devDependencies["@earendil-works/pi-coding-agent"]).toBe("0.84.1");
-		expect(packageJson.peerDependencies["@earendil-works/pi-ai"]).toBe(">=0.81.1");
-		expect(packageJson.peerDependencies["@earendil-works/pi-coding-agent"]).toBe(">=0.81.1");
+		for (const name of ["pi-ai", "pi-coding-agent", "pi-agent-core"]) {
+			expect(packageJson.devDependencies[`@earendil-works/${name}`]).toBe("0.87.1");
+			expect(packageJson.peerDependencies[`@earendil-works/${name}`]).toBe(">=0.87.1");
+		}
 		expect(packageJson.peerDependencies["@mariozechner/pi-ai"]).toBeUndefined();
 		expect(packageJson.peerDependencies["@mariozechner/pi-coding-agent"]).toBeUndefined();
 		expect(packageJson.peerDependencies["@sinclair/typebox"]).toBeUndefined();
@@ -206,8 +206,8 @@ describe("GitHub Actions workflows", () => {
 	});
 });
 
-// We need to import the default export to register tools
-import registerExtension from "../index.js";
+// Keep upstream tool regressions separate from the resident extension entry point.
+import { registerLegacyMemory as registerExtension } from "../index.js";
 
 // ==========================================================================
 // 1. Utility functions

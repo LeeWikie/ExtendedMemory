@@ -3,3 +3,20 @@ node_modules/
 *.d.ts
 *.map
 .codegraph
+
+# Personal runtime data belongs in a separate private repository.
+/.extended-memory/
+/MEMORY/
+/Memory/
+/MEMORY.state/
+/Memory.state/
+/memory-context.md
+/config.json
+/imports/
+/versions/
+/agent-sessions/
+/.pi/
+.env
+.env.*
+!.env.example
+*.log
